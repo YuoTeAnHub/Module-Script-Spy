@@ -372,7 +372,8 @@ Controls:Button({
             SetStatus("Error: Can't Change", RED)
             return
         end
-        local ok = pcall(setclipboard, src)
+        local full = "-- Path: " .. CurrentModule:GetFullName() .. "\n" .. src
+        local ok = pcall(setclipboard, full)
         if ok then
             SetStatus("Copied", GREEN)
         else
