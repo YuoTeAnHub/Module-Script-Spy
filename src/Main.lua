@@ -65,6 +65,7 @@ local AutoRefreshEnabled   = false
 local AutoRefreshInterval  = 1
 local RebuildTree
 local HighlightLP   = false
+local DumperMode    = false
 local editMethod    = "Default"
 local SearchText    = ""
 
@@ -285,7 +286,7 @@ local function SetStatus(text, color)
     local myToken = statusToken
     pcall(function() StatusLabel.Text = text end)
     pcall(function() StatusLabel.TextColor3 = color end)
-    if text == "Changed" or text == "Copied" then
+    if text == "Changed" or text == "Copied" or text == "Dumped" then
         task.delay(1, function()
             if statusToken == myToken then
                 ClearStatus()
@@ -387,6 +388,39 @@ Controls:Button({
     Callback = applyModuleSource,
 })
 
+Controls:Button({
+    Text     = "Dump",
+    Callback = function()
+        if not CurrentModule then
+            SetStatus("Error: Can't Change", RED)
+            return
+        end
+        if not writefile then
+            SetStatus("Error: Can't Change", RED)
+            return
+        end
+        local ok, err = pcall(function()
+            if isfolder and not isfolder("Module Spy") then
+                makefolder("Module Spy")
+            elseif makefolder then
+                pcall(makefolder, "Module Spy")
+            end
+            local src = ReadSource(CurrentModule)
+            if src == "" then error("empty source") end
+            local safeName = CurrentModule.Name:gsub("[^%w%-%._]", "_")
+            local filename = "Module Spy/" .. safeName .. "_Dumped.txt"
+            local full = "-- Path: " .. CurrentModule:GetFullName() .. "\n" .. src
+            writefile(filename, full)
+        end)
+        if ok then
+            SetStatus("Dumped", GREEN)
+        else
+            warn("[ModuleSpy] dump:", err)
+            SetStatus("Error: Can't Change", RED)
+        end
+    end,
+})
+
 Controls:Checkbox({
     Label    = "Loop",
     Value    = false,
@@ -433,6 +467,12 @@ OptionsTab:Checkbox({
         HighlightLP = v
         RetintAll()
     end,
+})
+
+OptionsTab:Checkbox({
+    Label    = "Dumper Mode",
+    Value    = false,
+    Callback = function(_, v) DumperMode = v end,
 })
 
 local AutoRefreshRow = OptionsTab:Row()
@@ -506,6 +546,11 @@ local function OpenModule(m, sel)
     SelectedSel = sel
     if sel then
         pcall(function() sel:SetSelected(true) end)
+    end
+    if DumperMode then
+        if Editor.ClearText then pcall(function() Editor:ClearText() end) end
+        SetEditorText("-- Path: " .. m:GetFullName())
+        return
     end
     task.spawn(function()
         local ok, err = pcall(function()
