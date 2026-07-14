@@ -60,7 +60,10 @@ local LEFT_W = 170
 
 local CurrentModule = nil
 local CurrentConfig = nil
-local LoopEnabled   = false
+local LoopEnabled          = false
+local AutoRefreshEnabled   = false
+local AutoRefreshInterval  = 1
+local RebuildTree
 local HighlightLP   = false
 local editMethod    = "Default"
 local SearchText    = ""
@@ -352,6 +355,11 @@ local function applyModuleSource()
 end
 
 Controls:Button({
+    Text     = "Refresh",
+    Callback = function() RebuildTree() end,
+})
+
+Controls:Button({
     Text = "Copy",
     Callback = function()
         if not CurrentModule then return end
@@ -426,6 +434,24 @@ OptionsTab:Checkbox({
     end,
 })
 
+local AutoRefreshRow = OptionsTab:Row()
+
+AutoRefreshRow:Checkbox({
+    Label    = "Auto-Refresh",
+    Value    = false,
+    Callback = function(_, v) AutoRefreshEnabled = v end,
+})
+
+AutoRefreshRow:Combo({
+    Label    = "Interval",
+    Selected = 2,
+    Items    = { "0.5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" },
+    Callback = function(_, item)
+        local n = tonumber(tostring(item))
+        if n then AutoRefreshInterval = n end
+    end,
+})
+
 OptionsTab:Combo({
     Label    = "Edit Method",
     Selected = 1,
@@ -490,46 +516,75 @@ local function OpenModule(m, sel)
     end)
 end
 
-for _, name in ipairs(ServiceNames) do
-    local ok, svc = pcall(game.GetService, game, name)
-    if ok and svc then
-        local node = ServicesList:TreeNode({
-            Title     = name,
-            Collapsed = true,
-        })
-        TreeNodeByService[name] = node
+local RebuildToken = 0
 
-        task.spawn(function()
-            local mods = CollectModules(svc)
-            ModulesByService[name] = mods
-            if #mods == 0 then
-                node:Label({ Text = "Empty", FontFace = CodeFontFace })
-                return
-            end
-            for i, m in ipairs(mods) do
-                local sel
-                sel = node:Selectable({
-                    Text       = RichTextFor(m),
-                    RichText   = true,
-                    FontFace   = CodeFontFace,
-                    Callback   = function() OpenModule(m, sel) end,
-                })
-                SelectableByModule[m] = sel
-                RetintOne(m, sel)
-                if i % 15 == 0 then
-                    task.wait()
+RebuildTree = function()
+    RebuildToken = RebuildToken + 1
+    local myToken = RebuildToken
+    for _, node in pairs(TreeNodeByService) do
+        pcall(function() node:Remove() end)
+    end
+    SelectableByModule = {}
+    TreeNodeByService  = {}
+    ModulesByService   = {}
+    SelectedSel = nil
+    for _, name in ipairs(ServiceNames) do
+        if myToken ~= RebuildToken then return end
+        local ok, svc = pcall(game.GetService, game, name)
+        if ok and svc then
+            local node = ServicesList:TreeNode({
+                Title     = name,
+                Collapsed = true,
+            })
+            TreeNodeByService[name] = node
+            task.spawn(function()
+                local mods = CollectModules(svc)
+                if myToken ~= RebuildToken then return end
+                ModulesByService[name] = mods
+                if #mods == 0 then
+                    node:Label({ Text = "Empty", FontFace = CodeFontFace })
+                    return
                 end
-            end
-            if SearchText ~= "" then ApplySearch() end
-        end)
+                for i, m in ipairs(mods) do
+                    if myToken ~= RebuildToken then return end
+                    local sel
+                    sel = node:Selectable({
+                        Text       = RichTextFor(m),
+                        RichText   = true,
+                        FontFace   = CodeFontFace,
+                        Callback   = function() OpenModule(m, sel) end,
+                    })
+                    SelectableByModule[m] = sel
+                    RetintOne(m, sel)
+                    if i % 15 == 0 then
+                        task.wait()
+                    end
+                end
+                if SearchText ~= "" then ApplySearch() end
+            end)
+        end
     end
 end
+
+RebuildTree()
 
 task.spawn(function()
     while _G.ModuleSpy_Running do
         task.wait(0.5)
         if LoopEnabled and CurrentModule then
             local ok, err = pcall(applyModuleSource)
+            if not ok then warn("[ModuleSpy]", err) end
+        end
+    end
+end)
+
+task.spawn(function()
+    while _G.ModuleSpy_Running do
+        local interval = AutoRefreshInterval or 1
+        if interval < 0.5 then interval = 0.5 end
+        task.wait(interval)
+        if AutoRefreshEnabled then
+            local ok, err = pcall(RebuildTree)
             if not ok then warn("[ModuleSpy]", err) end
         end
     end
