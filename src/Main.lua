@@ -1,5 +1,3 @@
--- // Enjoy :3
-
 if _G.ModuleSpy_Unload then
     pcall(_G.ModuleSpy_Unload)
 end
@@ -71,6 +69,8 @@ local ApplyButton
 local EnabledCheckbox
 local DumpFilenames = {}
 local BuildHeader
+local DumpModule
+local IsDumpingAll = false
 local editMethod    = "Default"
 local SearchText    = ""
 
@@ -394,6 +394,44 @@ ApplyButton = Controls:Button({
     Callback = applyModuleSource,
 })
 
+DumpModule = function(m)
+    if not m then return false, "no module" end
+    if not writefile then return false, "no writefile" end
+    return pcall(function()
+        if makefolder and not (isfolder and isfolder("Module Spy")) then
+            pcall(makefolder, "Module Spy")
+        end
+        local sub = m:IsA("LocalScript") and "Local Scripts" or "Module Scripts"
+        local folder = "Module Spy/" .. sub
+        if makefolder and not (isfolder and isfolder(folder)) then
+            pcall(makefolder, folder)
+        end
+        local src = ReadSource(m)
+        if src == "" then error("empty source") end
+        local modulePath = m:GetFullName()
+        local safeName = m.Name:gsub("[^%w%-%._]", "_")
+        local filename = DumpFilenames[modulePath]
+        if not filename then
+            for _ = 1, 999 do
+                local id = string.format("%03d", math.random(0, 999))
+                local candidate = folder .. "/" .. safeName .. "_" .. id .. "_Dumped.txt"
+                local exists = false
+                if isfile then pcall(function() exists = isfile(candidate) end) end
+                if not exists then
+                    filename = candidate
+                    break
+                end
+            end
+            if not filename then
+                filename = folder .. "/" .. safeName .. "_" .. tostring(os.time()) .. "_Dumped.txt"
+            end
+            DumpFilenames[modulePath] = filename
+        end
+        local full = BuildHeader(m) .. "\n" .. src
+        writefile(filename, full)
+    end)
+end
+
 Controls:Button({
     Text     = "Dump",
     Callback = function()
@@ -401,43 +439,7 @@ Controls:Button({
             SetStatus("Error: Can't Change", RED)
             return
         end
-        if not writefile then
-            SetStatus("Error: Can't Change", RED)
-            return
-        end
-        local ok, err = pcall(function()
-            if makefolder and not (isfolder and isfolder("Module Spy")) then
-                pcall(makefolder, "Module Spy")
-            end
-            local sub = CurrentModule:IsA("LocalScript") and "Local Scripts" or "Module Scripts"
-            local folder = "Module Spy/" .. sub
-            if makefolder and not (isfolder and isfolder(folder)) then
-                pcall(makefolder, folder)
-            end
-            local src = ReadSource(CurrentModule)
-            if src == "" then error("empty source") end
-            local modulePath = CurrentModule:GetFullName()
-            local safeName = CurrentModule.Name:gsub("[^%w%-%._]", "_")
-            local filename = DumpFilenames[modulePath]
-            if not filename then
-                for _ = 1, 999 do
-                    local id = string.format("%03d", math.random(0, 999))
-                    local candidate = folder .. "/" .. safeName .. "_" .. id .. "_Dumped.txt"
-                    local exists = false
-                    if isfile then pcall(function() exists = isfile(candidate) end) end
-                    if not exists then
-                        filename = candidate
-                        break
-                    end
-                end
-                if not filename then
-                    filename = folder .. "/" .. safeName .. "_" .. tostring(os.time()) .. "_Dumped.txt"
-                end
-                DumpFilenames[modulePath] = filename
-            end
-            local full = BuildHeader(CurrentModule) .. "\n" .. src
-            writefile(filename, full)
-        end)
+        local ok, err = DumpModule(CurrentModule)
         if ok then
             SetStatus("Dumped", GREEN)
         else
@@ -574,6 +576,63 @@ OptionsTab:Combo({
         if RebuildTree then RebuildTree() end
     end,
 })
+
+local DumpAllRow = OptionsTab:Row()
+local DumpAllStatus
+DumpAllRow:Button({
+    Text     = "Dump All",
+    Callback = function()
+        if IsDumpingAll then return end
+        IsDumpingAll = true
+        task.spawn(function()
+            local mods = {}
+            for _, name in ipairs(ServiceNames) do
+                local list = ModulesByService[name]
+                if list then
+                    for _, m in ipairs(list) do
+                        mods[#mods + 1] = m
+                    end
+                end
+            end
+            local total = #mods
+            if total == 0 then
+                if DumpAllStatus then pcall(function() DumpAllStatus.Text = "Nothing to dump" end) end
+                IsDumpingAll = false
+                return
+            end
+            local success = 0
+            for i, m in ipairs(mods) do
+                local nm = m.Name
+                local ok, err = DumpModule(m)
+                if ok then
+                    success = success + 1
+                    if DumpAllStatus then
+                        pcall(function()
+                            DumpAllStatus.Text = string.format('%d/%d Dumped "%s"', i, total, nm)
+                            DumpAllStatus.TextColor3 = GREEN
+                        end)
+                    end
+                else
+                    if DumpAllStatus then
+                        pcall(function()
+                            DumpAllStatus.Text = string.format('%d/%d Can\'t Dump "%s" Skipped', i, total, nm)
+                            DumpAllStatus.TextColor3 = RED
+                        end)
+                    end
+                end
+                if i < total then task.wait(0.5) end
+            end
+            if DumpAllStatus then
+                pcall(function()
+                    DumpAllStatus.Text = string.format("Dumped %d/%d", success, total)
+                    DumpAllStatus.TextColor3 = GREEN
+                end)
+            end
+            IsDumpingAll = false
+        end)
+    end,
+})
+DumpAllStatus = DumpAllRow:Label({ Text = "", TextColor3 = GREEN, FontFace = CodeFontFace })
 
 local OpenToken = 0
 
