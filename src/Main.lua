@@ -71,6 +71,7 @@ local DumpFilenames = {}
 local BuildHeader
 local DumpModule
 local IsDumpingAll = false
+local AutoDumperInterval = 0.5
 local editMethod    = "Default"
 local SearchText    = ""
 
@@ -620,7 +621,7 @@ DumpAllRow:Button({
                         end)
                     end
                 end
-                if i < total then task.wait(0.5) end
+                if i < total then task.wait(AutoDumperInterval) end
             end
             if DumpAllStatus then
                 pcall(function()
@@ -633,6 +634,16 @@ DumpAllRow:Button({
     end,
 })
 DumpAllStatus = DumpAllRow:Label({ Text = "", TextColor3 = GREEN, FontFace = CodeFontFace })
+
+OptionsTab:Combo({
+    Label    = "Auto-Dumper Interval",
+    Selected = 2,
+    Items    = { "Low", "Medium", "Speed" },
+    Callback = function(_, item)
+        local map = { Low = 1, Medium = 0.5, Speed = 0.1 }
+        AutoDumperInterval = map[tostring(item)] or 0.5
+    end,
+})
 
 local OpenToken = 0
 
