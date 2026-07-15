@@ -66,6 +66,11 @@ local AutoRefreshInterval  = 1
 local RebuildTree
 local HighlightLP   = false
 local DumperMode    = false
+local ScriptType    = "Module Script"
+local ApplyButton
+local EnabledCheckbox
+local DumpFilenames = {}
+local BuildHeader
 local editMethod    = "Default"
 local SearchText    = ""
 
@@ -123,8 +128,9 @@ end
 
 local function CollectModules(root)
     local list = {}
+    local wantClass = ScriptType == "Local Script" and "LocalScript" or "ModuleScript"
     for _, d in ipairs(root:GetDescendants()) do
-        if d:IsA("ModuleScript") then table.insert(list, d) end
+        if d:IsA(wantClass) then table.insert(list, d) end
     end
     table.sort(list, function(a, b) return a.Name:lower() < b.Name:lower() end)
     return list
@@ -373,7 +379,7 @@ Controls:Button({
             SetStatus("Error: Can't Change", RED)
             return
         end
-        local full = "-- Path: " .. CurrentModule:GetFullName() .. "\n" .. src
+        local full = BuildHeader(CurrentModule) .. "\n" .. src
         local ok = pcall(setclipboard, full)
         if ok then
             SetStatus("Copied", GREEN)
@@ -383,7 +389,7 @@ Controls:Button({
     end,
 })
 
-Controls:Button({
+ApplyButton = Controls:Button({
     Text     = "Apply",
     Callback = applyModuleSource,
 })
@@ -400,16 +406,36 @@ Controls:Button({
             return
         end
         local ok, err = pcall(function()
-            if isfolder and not isfolder("Module Spy") then
-                makefolder("Module Spy")
-            elseif makefolder then
+            if makefolder and not (isfolder and isfolder("Module Spy")) then
                 pcall(makefolder, "Module Spy")
+            end
+            local sub = CurrentModule:IsA("LocalScript") and "Local Scripts" or "Module Scripts"
+            local folder = "Module Spy/" .. sub
+            if makefolder and not (isfolder and isfolder(folder)) then
+                pcall(makefolder, folder)
             end
             local src = ReadSource(CurrentModule)
             if src == "" then error("empty source") end
+            local modulePath = CurrentModule:GetFullName()
             local safeName = CurrentModule.Name:gsub("[^%w%-%._]", "_")
-            local filename = "Module Spy/" .. safeName .. "_Dumped.txt"
-            local full = "-- Path: " .. CurrentModule:GetFullName() .. "\n" .. src
+            local filename = DumpFilenames[modulePath]
+            if not filename then
+                for _ = 1, 999 do
+                    local id = string.format("%03d", math.random(0, 999))
+                    local candidate = folder .. "/" .. safeName .. "_" .. id .. "_Dumped.txt"
+                    local exists = false
+                    if isfile then pcall(function() exists = isfile(candidate) end) end
+                    if not exists then
+                        filename = candidate
+                        break
+                    end
+                end
+                if not filename then
+                    filename = folder .. "/" .. safeName .. "_" .. tostring(os.time()) .. "_Dumped.txt"
+                end
+                DumpFilenames[modulePath] = filename
+            end
+            local full = BuildHeader(CurrentModule) .. "\n" .. src
             writefile(filename, full)
         end)
         if ok then
@@ -427,7 +453,37 @@ Controls:Checkbox({
     Callback = function(_, v) LoopEnabled = v end,
 })
 
+EnabledCheckbox = Controls:Checkbox({
+    Label    = "Enabled",
+    Value    = false,
+    Callback = function(_, v)
+        if not CurrentModule then return end
+        if not CurrentModule:IsA("LocalScript") then return end
+        local ok = pcall(function() CurrentModule.Enabled = v end)
+        if ok then
+            SetStatus("Changed", GREEN)
+        else
+            SetStatus("Error: Can't Change", RED)
+        end
+    end,
+})
+pcall(function() EnabledCheckbox.Visible = false end)
+
 StatusLabel = Controls:Label({ Text = "", TextColor3 = GREEN, FontFace = CodeFontFace })
+
+BuildHeader = function(m)
+    local isLocal = m:IsA("LocalScript")
+    local lines = {
+        "-- Path: " .. m:GetFullName(),
+        "-- Script Type: " .. (isLocal and "Local" or "Module"),
+    }
+    if isLocal then
+        local enabled = false
+        pcall(function() enabled = m.Enabled end)
+        lines[#lines + 1] = "-- Enabled?: " .. (enabled and "Yes" or "No")
+    end
+    return table.concat(lines, "\n")
+end
 
 local function RichTextFor(m)
     if HighlightLP and IsLocalPlayerRelated(m) then
@@ -502,6 +558,23 @@ OptionsTab:Combo({
     end,
 })
 
+local function ApplyScriptType()
+    local isLocal = ScriptType == "Local Script"
+    if ApplyButton then pcall(function() ApplyButton.Visible = not isLocal end) end
+    if EnabledCheckbox then pcall(function() EnabledCheckbox.Visible = isLocal end) end
+end
+
+OptionsTab:Combo({
+    Label    = "Script Type",
+    Selected = 2,
+    Items    = { "Local Script", "Module Script" },
+    Callback = function(_, item)
+        ScriptType = tostring(item)
+        ApplyScriptType()
+        if RebuildTree then RebuildTree() end
+    end,
+})
+
 local OpenToken = 0
 
 local function StreamEditorText(text, token)
@@ -547,16 +620,20 @@ local function OpenModule(m, sel)
     if sel then
         pcall(function() sel:SetSelected(true) end)
     end
+    if EnabledCheckbox and m:IsA("LocalScript") then
+        local isEnabled = false
+        pcall(function() isEnabled = m.Enabled end)
+        pcall(function() EnabledCheckbox:SetValue(isEnabled, true) end)
+    end
     if DumperMode then
         if Editor.ClearText then pcall(function() Editor:ClearText() end) end
-        SetEditorText("-- Path: " .. m:GetFullName())
+        SetEditorText(BuildHeader(m))
         return
     end
     task.spawn(function()
         local ok, err = pcall(function()
-            local path = m:GetFullName()
             local src  = ReadSource(m)
-            StreamEditorText("-- Path: " .. path .. "\n" .. src, myToken)
+            StreamEditorText(BuildHeader(m) .. "\n" .. src, myToken)
         end)
         if not ok then warn("[ModuleSpy]", err) end
     end)
