@@ -71,7 +71,7 @@ local DumpFilenames = {}
 local BuildHeader
 local DumpModule
 local IsDumpingAll = false
-local AutoDumperInterval = 0.5
+local DumperInterval = 0.5
 local editMethod    = "Default"
 local SearchText    = ""
 
@@ -534,20 +534,18 @@ OptionsTab:Checkbox({
     Callback = function(_, v) DumperMode = v end,
 })
 
-local AutoRefreshRow = OptionsTab:Row()
-
-AutoRefreshRow:Checkbox({
+OptionsTab:Checkbox({
     Label    = "Auto-Refresh",
     Value    = false,
     Callback = function(_, v) AutoRefreshEnabled = v end,
 })
 
-AutoRefreshRow:Combo({
+OptionsTab:Combo({
     Label    = "Interval",
     Selected = 2,
-    Items    = { "0.5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" },
+    Items    = { "0.5 Seconds", "1 Seconds", "2 Seconds", "3 Seconds", "4 Seconds", "5 Seconds", "6 Seconds", "7 Seconds", "8 Seconds", "9 Seconds", "10 Seconds", "11 Seconds", "12 Seconds", "13 Seconds", "14 Seconds", "15 Seconds" },
     Callback = function(_, item)
-        local n = tonumber(tostring(item))
+        local n = tonumber((tostring(item):gsub(" Seconds", "")))
         if n then AutoRefreshInterval = n end
     end,
 })
@@ -575,6 +573,16 @@ OptionsTab:Combo({
         ScriptType = tostring(item)
         ApplyScriptType()
         if RebuildTree then RebuildTree() end
+    end,
+})
+
+OptionsTab:Combo({
+    Label    = "Dumper Interval",
+    Selected = 2,
+    Items    = { "1 Seconds", "0.5 Seconds", "0.1 Seconds", "0.05 Seconds" },
+    Callback = function(_, item)
+        local n = tonumber((tostring(item):gsub(" Seconds", "")))
+        if n then DumperInterval = n end
     end,
 })
 
@@ -621,7 +629,7 @@ DumpAllRow:Button({
                         end)
                     end
                 end
-                if i < total then task.wait(AutoDumperInterval) end
+                if i < total then task.wait(DumperInterval) end
             end
             if DumpAllStatus then
                 pcall(function()
@@ -634,16 +642,6 @@ DumpAllRow:Button({
     end,
 })
 DumpAllStatus = DumpAllRow:Label({ Text = "", TextColor3 = GREEN, FontFace = CodeFontFace })
-
-OptionsTab:Combo({
-    Label    = "Auto-Dumper Interval",
-    Selected = 2,
-    Items    = { "Low", "Medium", "Speed" },
-    Callback = function(_, item)
-        local map = { Low = 1, Medium = 0.5, Speed = 0.1 }
-        AutoDumperInterval = map[tostring(item)] or 0.5
-    end,
-})
 
 local OpenToken = 0
 
